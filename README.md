@@ -1,92 +1,95 @@
-# 🤖 Autonomous Robotics Project
+# Autonomous Robotics — Agricultural Robot System
 
-This project focuses on the development of an autonomous mobile robot with sensor-based perception and decision-making capabilities.
-
-The main objective is to design a system that can operate independently in an environment by processing sensor inputs and making navigation decisions in real time.
+ROS 2 node suite for an autonomous agricultural robot that surveys a field, detects soil anomalies, and dispatches specialized action robots.
 
 ---
 
-## 📖 Overview
+## System Overview
 
-In this project, I built an autonomous robotic system that integrates perception, navigation, and control.
+Five ROS 2 nodes coordinate through shared JSON state files:
 
-The system uses sensor data to understand its surroundings and applies decision algorithms to move safely and efficiently. Special attention was given to making the system robust under different conditions.
+| Node | File | Role |
+|------|------|------|
+| `NavigatorNode` | `navigator_node.py` | Surveys predefined waypoints, logs pH and moisture anomalies |
+| `RepeatedNavigator` | `repeated_navigator.py` | Continuous survey loop with anomaly detection |
+| `WaterBot` | `waterbot_node.py` | Navigates to moisture-deficient zones (`moisture < 30`) and waters them |
+| `SprayBot` | `spraybot_node.py` | Navigates to pH-anomalous zones (`pH < 5.5` or `pH > 7.5`) and sprays corrective agent |
+| `SeedBot` | `seedbot_node.py` | Accepts operator-selected coordinates and seeds them |
 
-This project was completed independently as part of my coursework.
+**Shared state files** (written by navigator, read by action bots):
 
----
-
-## ⚙️ Features
-
-- Sensor-based environment perception  
-- Autonomous navigation system  
-- Decision-making algorithms for movement  
-- Modular system design  
-- Emphasis on robustness and stability  
-
----
-
-## 🧠 Key Components
-
-### 1. Perception
-
-The robot collects data from onboard sensors and processes it to detect obstacles and understand the environment.
-
-### 2. Navigation
-
-A navigation strategy is implemented to allow the robot to move toward goals while avoiding obstacles.
-
-### 3. Decision Making
-
-The system determines appropriate actions based on sensor input and current state.
+- `~/anomalies.json` — detected pH and moisture anomaly coordinates
+- `~/seeding_points.json` — operator-approved seeding locations
 
 ---
 
-## 🗂️ Project Structure
+## Architecture
+
+```
+NavigatorNode / RepeatedNavigator
+  ├─ publishes /goal_pose  →  Nav2 stack
+  ├─ writes ~/anomalies.json
+  └─ writes ~/seeding_points.json
+
+WaterBot   ──reads anomalies.json──▶  navigates to moisture zones
+SprayBot   ──reads anomalies.json──▶  navigates to pH zones
+SeedBot    ──reads seeding_points.json──▶  navigates to seed zones
+```
+
+All nodes publish `geometry_msgs/PoseStamped` to `/goal_pose` and use `geometry_msgs/Twist` on `/cmd_vel` for in-place actuation.
+
+---
+
+## Prerequisites
+
+- ROS 2 (Humble or later)
+- Nav2 navigation stack
+- Python 3.10+
+
+---
+
+## Running
+
+Launch each node in a separate terminal after sourcing your ROS 2 workspace:
 
 ```bash
-.
-├── src/                # Core implementation
-├── sensors/            # Sensor-related modules
-├── navigation/         # Navigation algorithms
-├── control/            # Motion / control logic
-├── data/               # Input or test data
-└── README.md
+# Survey the field
+ros2 run <package> navigator_node
+
+# Continuous survey
+ros2 run <package> repeated_navigator
+
+# Dispatch action bots after anomalies are logged
+ros2 run <package> waterbot_node
+ros2 run <package> spraybot_node
+ros2 run <package> seedbot_node   # prompts for seeding point selection
 ```
-## 🚀 Getting Started
-Requirements
-Python 3.x
-Recommended libraries:
-numpy
-matplotlib
-scipy
 
-## Installation
-git clone https://github.com/your-username/autonomous-robotics-project.git
-cd autonomous-robotics-project
-pip install -r requirements.txt
+---
 
-## ▶️ Usage
+## Waypoints
 
-Run the main program:
+Default survey waypoints (map frame, metres):
 
-python main.py
+| Index | x | y |
+|-------|---|---|
+| 0 | 1.33 | 0.962 |
+| 1 | 0.0207 | 0.505 |
+| 2 | 1.45 | −0.0149 |
 
-## 📊 Results
+Edit `WAYPOINTS` in `navigator_node.py` or `repeated_navigator.py` to match your field layout.
 
-The robot is able to:
+---
 
-Perceive its surroundings using sensor input
-Navigate through an environment autonomously
-Make decisions in response to dynamic conditions
+## Anomaly Thresholds
 
-## 🧪 Implementation Notes
-The system was designed with modularity in mind
-Algorithms were tested under different scenarios
-Robustness was a key consideration during development
+| Sensor | Threshold | Action |
+|--------|-----------|--------|
+| Moisture | `< 30` | WaterBot dispatched |
+| pH | `< 5.5` or `> 7.5` | SprayBot dispatched |
 
-## 👤 Author
-Weiping Yan
+---
 
-## 📄 License
-MIT License
+## License
+
+MIT
