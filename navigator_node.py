@@ -1,7 +1,6 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
-import time
 import random
 import json
 import os
@@ -19,9 +18,10 @@ class NavigatorNode(Node):
     def __init__(self):
         super().__init__('navigator_node')
         self.publisher_ = self.create_publisher(PoseStamped, '/goal_pose', 10)
-        self.timer = self.create_timer(35.0, self.send_next_goal)
         self.current_goal_index = 0
         self.wait_duration = 35.0
+        self.timer = self.create_timer(self.wait_duration, self.send_next_goal)
+        self.pending_goal = None
         self.get_logger().info('Navigator node initialized')
 
         if not os.path.exists(ANOMALY_FILE):
@@ -32,6 +32,11 @@ class NavigatorNode(Node):
                 json.dump([], f, indent=2)
 
     def send_next_goal(self):
+        if self.pending_goal is not None:
+            self.simulate_sensor(self.pending_goal['x'], self.pending_goal['y'])
+            self.current_goal_index += 1
+            self.pending_goal = None
+
         if self.current_goal_index >= len(WAYPOINTS):
             self.get_logger().info("All waypoints visited.")
             self.timer.cancel()
@@ -47,9 +52,7 @@ class NavigatorNode(Node):
 
         self.publisher_.publish(msg)
         self.get_logger().info(f"Navigating to ({goal['x']}, {goal['y']})")
-        time.sleep(self.wait_duration)
-        self.simulate_sensor(goal['x'], goal['y'])
-        self.current_goal_index += 1
+        self.pending_goal = goal
 
     def simulate_sensor(self, x, y):
         ph = round(random.uniform(0.0, 14.0), 2)

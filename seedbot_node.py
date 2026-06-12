@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, Twist
 import json
-import time
 import os
 
 class SeedBot(Node):
@@ -10,6 +9,9 @@ class SeedBot(Node):
         super().__init__('seedbot_node')
         self.publisher_ = self.create_publisher(PoseStamped, '/goal_pose', 10)
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.wait_timer = None
+        self.seeding_timer = None
+        self.seeding_end_time = None
 
         seeding_file = os.path.expanduser("~/seeding_points.json") # Load seeding points from JSON
         with open(seeding_file, 'r') as f:
@@ -28,6 +30,10 @@ class SeedBot(Node):
         self.index = 0
         self.timer = self.create_timer(25.0, self.go_to_next)
 
+    def now_seconds(self):
+        seconds, nanoseconds = self.get_clock().now().seconds_nanoseconds()
+        return seconds + nanoseconds / 1e9
+
     def go_to_next(self):
         if self.index >= len(self.selected_points):
             self.get_logger().info("SeedBot finished all selected points.")
@@ -44,25 +50,33 @@ class SeedBot(Node):
 
         self.publisher_.publish(goal)
         self.get_logger().info(f" Heading to point ({pt['x']:.2f}, {pt['y']:.2f})")
-        time.sleep(30)
+        self.timer.cancel()
+        self.wait_timer = self.create_timer(30.0, self.start_seeding)
 
+    def start_seeding(self):
+        if self.wait_timer is not None:
+            self.wait_timer.cancel()
+            self.wait_timer = None
+
+        self.get_logger().info(" Seeding at location (3 rotations)")
+        self.seeding_end_time = self.now_seconds() + 80.0
+        self.seeding_timer = self.create_timer(0.1, self.perform_seeding)
         self.perform_seeding()
-        self.index += 1
 
     def perform_seeding(self):
-        self.get_logger().info(" Seeding at location (3 rotations)")
-
         twist = Twist()
-        twist.angular.z = 0.5
-        start_time = self.get_clock().now().seconds_nanoseconds()[0]
-        duration = 80
-
-        while self.get_clock().now().seconds_nanoseconds()[0] - start_time < duration:
+        if self.now_seconds() < self.seeding_end_time:
+            twist.angular.z = 0.5
             self.cmd_vel_pub.publish(twist)
-            time.sleep(0.1)
+            return
 
         twist.angular.z = 0.0
         self.cmd_vel_pub.publish(twist)
+        if self.seeding_timer is not None:
+            self.seeding_timer.cancel()
+            self.seeding_timer = None
+        self.index += 1
+        self.go_to_next()
 
 def main(args=None):
     rclpy.init(args=args)

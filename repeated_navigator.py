@@ -1,11 +1,9 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
-import time
 import random
 import json
 import os
-from threading import Timer
 
 WAYPOINTS = [
     {'x': 1.33, 'y': 0.962},
@@ -22,16 +20,23 @@ class RepeatedNavigator(Node):
         self.publisher_ = self.create_publisher(PoseStamped, '/goal_pose', 10)
         self.timer = self.create_timer(35.0, self.send_next_goal)
         self.current_goal_index = 0
+        self.pending_goal = None
+        self.restart_timer = None
         self.first_run = True
         self.get_logger().info("Repeated Navigator node started.")
 
     def send_next_goal(self):
+        if self.pending_goal is not None:
+            self.simulate_sensor(self.pending_goal['x'], self.pending_goal['y'])
+            self.current_goal_index += 1
+            self.pending_goal = None
+
         if self.current_goal_index >= len(WAYPOINTS):
             self.get_logger().info("All waypoints visited.")
             self.timer.cancel()
             if not self.first_run:
                 self.get_logger().info("Waiting 5 minutes before next navigation cycle.")
-                Timer(300.0, self.start_new_cycle).start()
+                self.restart_timer = self.create_timer(300.0, self.start_new_cycle)
             else:
                 self.first_run = False
                 self.start_new_cycle()
@@ -47,13 +52,16 @@ class RepeatedNavigator(Node):
 
         self.publisher_.publish(msg)
         self.get_logger().info(f"Navigating to ({goal['x']}, {goal['y']})")
-        time.sleep(35)
-        self.simulate_sensor(goal['x'], goal['y'])
-        self.current_goal_index += 1
+        self.pending_goal = goal
 
     def start_new_cycle(self):
+        if self.restart_timer is not None:
+            self.restart_timer.cancel()
+            self.restart_timer = None
+
         self.get_logger().info("Resetting anomaly and seeding data for next run.")
         self.current_goal_index = 0
+        self.pending_goal = None
         with open(ANOMALY_FILE, 'w') as f:
             json.dump({"ph_anomalies": [], "moisture_anomalies": []}, f, indent=2)
         with open(SEEDING_FILE, 'w') as f:

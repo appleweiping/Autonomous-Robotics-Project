@@ -2,7 +2,6 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped, Twist
 import json
-import time
 import os
 
 class SprayBot(Node):
@@ -12,11 +11,19 @@ class SprayBot(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.timer = self.create_timer(25.0, self.go_to_next)
         self.index = 0
+        self.wait_timer = None
+        self.shake_timer = None
+        self.shake_end_time = None
+        self.shake_direction = 1
 
         with open(os.path.expanduser("~/anomalies.json")) as f:
             self.coords = [p for p in json.load(f)['ph_anomalies'] if p['ph'] < 5.5 or p['ph'] > 7.5]
 
         self.get_logger().info(f"Loaded {len(self.coords)} pH anomaly points.")
+
+    def now_seconds(self):
+        seconds, nanoseconds = self.get_clock().now().seconds_nanoseconds()
+        return seconds + nanoseconds / 1e9
 
     def go_to_next(self):
         if self.index >= len(self.coords):
@@ -33,21 +40,35 @@ class SprayBot(Node):
         msg.pose.orientation.w = 1.0
         self.publisher_.publish(msg)
         self.get_logger().info(f"Going to ({pt['x']}, {pt['y']})")
-        time.sleep(25)
+        self.timer.cancel()
+        self.wait_timer = self.create_timer(25.0, self.start_shaking)
+
+    def start_shaking(self):
+        if self.wait_timer is not None:
+            self.wait_timer.cancel()
+            self.wait_timer = None
 
         self.get_logger().info("Shaking for 5 seconds")
+        self.shake_end_time = self.now_seconds() + 5.0
+        self.shake_direction = 1
+        self.shake_timer = self.create_timer(0.5, self.publish_shake)
+        self.publish_shake()
+
+    def publish_shake(self):
         twist = Twist()
-        end_time = self.get_clock().now().seconds_nanoseconds()[0] + 5
-        direction = 1
-        while self.get_clock().now().seconds_nanoseconds()[0] < end_time:
-            twist.angular.z = 0.5 * direction
+        if self.now_seconds() < self.shake_end_time:
+            twist.angular.z = 0.5 * self.shake_direction
             self.cmd_vel_pub.publish(twist)
-            direction *= -1
-            time.sleep(0.5)
+            self.shake_direction *= -1
+            return
 
         twist.angular.z = 0.0
         self.cmd_vel_pub.publish(twist)
+        if self.shake_timer is not None:
+            self.shake_timer.cancel()
+            self.shake_timer = None
         self.index += 1
+        self.go_to_next()
 
 def main(args=None):
     rclpy.init(args=args)
