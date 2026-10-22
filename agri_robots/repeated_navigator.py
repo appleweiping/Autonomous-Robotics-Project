@@ -25,6 +25,13 @@ class RepeatedNavigator(Node):
         self.first_run = True
         self.get_logger().info("Repeated Navigator node started.")
 
+        if not os.path.exists(ANOMALY_FILE):
+            with open(ANOMALY_FILE, 'w') as f:
+                json.dump({"ph_anomalies": [], "moisture_anomalies": []}, f, indent=2)
+        if not os.path.exists(SEEDING_FILE):
+            with open(SEEDING_FILE, 'w') as f:
+                json.dump([], f, indent=2)
+
     def send_next_goal(self):
         if self.pending_goal is not None:
             self.simulate_sensor(self.pending_goal['x'], self.pending_goal['y'])

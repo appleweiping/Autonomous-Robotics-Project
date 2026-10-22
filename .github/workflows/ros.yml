@@ -1,0 +1,47 @@
+name: ros2
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [humble, jazzy]
+    runs-on: ubuntu-latest
+    container: ros:${{ matrix.distro }}-ros-base
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src/agri_robots
+
+      - name: Install pytest
+        run: apt-get update && apt-get install -y --no-install-recommends python3-pytest
+
+      - name: colcon build
+        run: |
+          source /opt/ros/${{ matrix.distro }}/setup.bash
+          colcon build --packages-select agri_robots
+
+      - name: colcon test
+        run: |
+          source /opt/ros/${{ matrix.distro }}/setup.bash
+          colcon test --packages-select agri_robots --event-handlers console_direct+
+          colcon test-result --verbose
+
+      # No Nav2 here: the node only publishes goals, so this checks the timers
+      # and the JSON output. The first goal goes out at 35 s, the first
+      # simulated reading is taken at 70 s.
+      - name: Run one survey for 80 s
+        run: |
+          source install/setup.bash
+          ros2 pkg executables agri_robots
+          timeout --signal=INT 80 ros2 launch agri_robots survey.launch.py 2>&1 | tee survey.log || true
+          grep -q "Sensor at (1.33, 0.96)" survey.log
+          cat ~/anomalies.json ~/seeding_points.json
